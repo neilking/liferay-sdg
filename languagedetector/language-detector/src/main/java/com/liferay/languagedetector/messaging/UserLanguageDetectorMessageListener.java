@@ -3,6 +3,8 @@ package com.liferay.languagedetector.messaging;
 import com.liferay.languagedetector.util.Constants;
 import com.liferay.languagedetector.util.PortletPropsValues;
 import com.liferay.portal.NoSuchUserException;
+import com.liferay.portal.kernel.exception.PortalException;
+import com.liferay.portal.kernel.exception.SystemException;
 import com.liferay.portal.kernel.log.Log;
 import com.liferay.portal.kernel.log.LogFactoryUtil;
 import com.liferay.portal.kernel.messaging.Message;
@@ -29,61 +31,9 @@ public class UserLanguageDetectorMessageListener implements MessageListener {
 			User user = UserLocalServiceUtil.getUserByEmailAddress(
 				companyId, PortletPropsValues.DETECT_USER_EMAIL);
 
-			ExpandoTable table = ExpandoTableLocalServiceUtil.getDefaultTable(
-				user.getCompanyId(), User.class.getName());
+			String languageChangeTime = getLanguageChangeTime(user);
 
-			ExpandoColumn column = ExpandoColumnLocalServiceUtil.getColumn(
-				table.getTableId(), Constants.EXPANDO_COLUMN_NAME);
-
-			ExpandoValue value = ExpandoValueLocalServiceUtil.getValue(
-				table.getTableId(), column.getColumnId(), user.getUserId());
-
-			String languageChangeTime = StringPool.BLANK;
-
-			if (value != null) {
-				languageChangeTime = value.getData();
-			}
-
-			String userLanguage = user.getLanguageId();
-
-			long timeStamp = System.currentTimeMillis();
-
-			if (Validator.isNull(languageChangeTime) &&
-				userLanguage.equals(PortletPropsValues.DETECT_LANGUAGE)) {
-
-				ExpandoValueLocalServiceUtil.addValue(
-					table.getClassNameId(), table.getTableId(),
-					column.getColumnId(), user.getUserId(),
-					String.valueOf(timeStamp));
-
-				if (_log.isInfoEnabled()) {
-					_log.info("Detect user language change.");
-				}
-			}
-
-			if (Validator.isNotNull(languageChangeTime) &&
-				!userLanguage.equals(PortletPropsValues.DETECT_LANGUAGE)) {
-
-				ExpandoValueLocalServiceUtil.addValue(
-					table.getClassNameId(), table.getTableId(),
-					column.getColumnId(), user.getUserId(), StringPool.BLANK);
-			}
-
-			if (Validator.isNotNull(languageChangeTime) &&
-				userLanguage.equals(PortletPropsValues.DETECT_LANGUAGE) &&
-				(timeStamp - Long.valueOf(languageChangeTime)) >= PortletPropsValues.LANGUAGE_LIFE_MS) {
-
-				user.setLanguageId(PortletPropsValues.RECOVER_LANGUAGE);
-				UserLocalServiceUtil.updateUser(user);
-
-				ExpandoValueLocalServiceUtil.addValue(
-					table.getClassNameId(), table.getTableId(),
-					column.getColumnId(), user.getUserId(), StringPool.BLANK);
-
-				if (_log.isInfoEnabled()) {
-					_log.info("update user language to " + PortletPropsValues.RECOVER_LANGUAGE);
-				}
-			}
+			recoverUserLanguage(user, languageChangeTime);
 		}
 		catch (NoSuchUserException nsue) {
 			if (_log.isInfoEnabled()) {
@@ -96,6 +46,79 @@ public class UserLanguageDetectorMessageListener implements MessageListener {
 		catch (Exception e) {
 			if (_log.isErrorEnabled()) {
 				_log.error(e);
+			}
+		}
+	}
+
+	protected String getLanguageChangeTime(User user)
+		throws PortalException, SystemException {
+
+		ExpandoTable table = ExpandoTableLocalServiceUtil.getDefaultTable(
+				user.getCompanyId(), User.class.getName());
+
+		ExpandoColumn column = ExpandoColumnLocalServiceUtil.getColumn(
+			table.getTableId(), Constants.EXPANDO_COLUMN_NAME);
+
+		ExpandoValue value = ExpandoValueLocalServiceUtil.getValue(
+			table.getTableId(), column.getColumnId(), user.getUserId());
+
+		if (value != null) {
+			return value.getData();
+		}
+
+		return StringPool.BLANK;
+	}
+
+	protected void recoverUserLanguage(User user, String languageChangeTime)
+		throws PortalException, SystemException {
+
+		ExpandoTable table = ExpandoTableLocalServiceUtil.getDefaultTable(
+			user.getCompanyId(), User.class.getName());
+
+		ExpandoColumn column = ExpandoColumnLocalServiceUtil.getColumn(
+			table.getTableId(), Constants.EXPANDO_COLUMN_NAME);
+
+		String userLanguage = user.getLanguageId();
+
+		long timeStamp = System.currentTimeMillis();
+
+		if (Validator.isNull(languageChangeTime) &&
+			userLanguage.equals(PortletPropsValues.DETECT_LANGUAGE)) {
+
+			ExpandoValueLocalServiceUtil.addValue(
+				table.getClassNameId(), table.getTableId(),
+				column.getColumnId(), user.getUserId(),
+				String.valueOf(timeStamp));
+
+			if (_log.isInfoEnabled()) {
+				_log.info("Detect user language change.");
+			}
+		}
+
+		if (Validator.isNotNull(languageChangeTime) &&
+			!userLanguage.equals(PortletPropsValues.DETECT_LANGUAGE)) {
+
+			ExpandoValueLocalServiceUtil.addValue(
+				table.getClassNameId(), table.getTableId(),
+				column.getColumnId(), user.getUserId(), StringPool.BLANK);
+		}
+
+		if (Validator.isNotNull(languageChangeTime) &&
+			userLanguage.equals(PortletPropsValues.DETECT_LANGUAGE) &&
+			(timeStamp - Long.valueOf(languageChangeTime))
+				>= PortletPropsValues.LANGUAGE_LIFE_MS) {
+
+			user.setLanguageId(PortletPropsValues.RECOVER_LANGUAGE);
+			UserLocalServiceUtil.updateUser(user);
+
+			ExpandoValueLocalServiceUtil.addValue(
+				table.getClassNameId(), table.getTableId(),
+				column.getColumnId(), user.getUserId(), StringPool.BLANK);
+
+			if (_log.isInfoEnabled()) {
+				_log.info(
+					"update user language to " +
+					PortletPropsValues.RECOVER_LANGUAGE);
 			}
 		}
 	}
